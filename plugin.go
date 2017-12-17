@@ -37,6 +37,19 @@ var virtualboxOSRe = regexp.MustCompile(`<OperatingSystemSection ovf:id="(\d)+">
 var virtualboxNATRe = regexp.MustCompile(`(?s)<Item>(.*?)<\/Item>`)
 var virtualboxVboxRe = regexp.MustCompile(`(?s)<vbox:Machine.*<\/vbox:Machine>`)
 
+type VAppPropertyMetadata struct {
+	UserConfigurable bool    `mapstructure:"user_configurable"`
+	Type             string  `mapstructure:"type"`
+	Key              string  `mapstructure:"key"`
+	Value            string  `mapstructure:"value"`
+}
+
+type VAppProperty struct {
+	Metadata         VAppPropertyMetadata `mapstructure:"metadata"`
+	Label            string               `mapstructure:"label"`
+	Description      string               `mapstructure:"description"`
+}
+
 type OVF struct {
 	Datacenter      string `mapstructure:"datacenter"`
 	Datastore       string `mapstructure:"datastore"`
@@ -50,6 +63,7 @@ type OVF struct {
 	OsVersion       string `mapstructure:"os_version"`
 	OsID            string `mapstructure:"os_id"`
 	HardwareVersion string `mapstructure:"hardware_version"`
+	VAppProperties  []VAppProperty `mapstructure:"v_app_properties"`
 
 	ui       packer.Ui
 	client   *vim25.Client
@@ -62,14 +76,42 @@ type OVF struct {
 }
 
 func (o *OVF) normalizeOVF(content []byte) {
+	newHardwareSectionOpenBase := []byte(`
+	<VirtualHardwareSection ovf:transport="com.vmware.guestInfo">
+	`)
 	newHardwareSectionBase := []byte(`
 		<vmw:Config ovf:required="false" vmw:key="tools.afterPowerOn" vmw:value="true"/>
 		<vmw:Config ovf:required="false" vmw:key="tools.afterResume" vmw:value="true"/>
 		<vmw:Config ovf:required="false" vmw:key="tools.beforeGuestShutdown" vmw:value="true"/>
 		<vmw:Config ovf:required="false" vmw:key="tools.beforeGuestStandby" vmw:value="true"/>
+		<vmw:Config ovf:required="false" vmw:key="firmware" vmw:value="bios"/>
 	</VirtualHardwareSection>
 	`)
+
+	newProductSectionBase := []byte(`
+		</OperatingSystemSection>
+		<ProductSection ovf:required="false">
+      <Info>CoreOS Virtual Appliance</Info>
+	`)
+
+	for _, vAppProperty := range o.VAppProperties {
+		metadata := vAppProperty.Metadata
+		newProductSectionBase = append(newProductSectionBase, fmt.Sprintf(`
+			<Property ovf:userConfigurable="%t" ovf:type="%s"
+				ovf:key="%s" ovf:value="%s">`, metadata.UserConfigurable, metadata.Type, metadata.Key, metadata.Value)...)
+		newProductSectionBase = append(newProductSectionBase, fmt.Sprintf(`
+			<Label>%s</Label>
+		`, vAppProperty.Label)...)
+		newProductSectionBase = append(newProductSectionBase, fmt.Sprintf(`
+			<Description>%s</Description>
+		`, vAppProperty.Description)...)
+		newProductSectionBase = append(newProductSectionBase, "</Property>"...)
+	}
+	newProductSectionBase = append(newProductSectionBase, "</ProductSection>"...)
+
+	content = bytes.Replace(content, []byte("<VirtualHardwareSection>"), newHardwareSectionOpenBase, -1)
 	content = bytes.Replace(content, []byte("</VirtualHardwareSection>"), newHardwareSectionBase, -1)
+	content = bytes.Replace(content, []byte("</OperatingSystemSection>"), newProductSectionBase, -1)
 	content = virtualboxNATRe.ReplaceAllFunc(content, func(match []byte) []byte {
 		fmt.Println(string(match))
 		if bytes.Contains(match, []byte("<rasd:Connection>NAT</rasd:Connection>")) {
