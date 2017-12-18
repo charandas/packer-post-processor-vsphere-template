@@ -33,7 +33,19 @@ Use the post-processor as follows in your packer manifest:
     "username":        "{{user `vsphere_username`}}",
     "password":        "{{user `vsphere_password`}}",
     "datacenter":      "{{user `vsphere_datacenter`}}",
-    "datastore":       "{{user `vsphere_datastore`}}"
+    "datastore":       "{{user `vsphere_datastore`}}",
+    "v_app_properties": [
+      {
+        "label": "Hostname",
+        "description": "Hostname",
+        "metadata": {
+          "user_configurable": true,
+          "type": "string",
+          "key": "guestinfo.hostname",
+          "value": ""
+        }
+      },
+      ... so on
   }
 ]
 ```
@@ -54,3 +66,4 @@ The following attributes are available:
 | os_version       | The VMWare os version to inject into the OVF template (defaults to "")                 | optional          |
 | vm_name          | The name of the OVF template to upload (defaults to the builder name)                  | optional          |
 | hardware_version | The VMWare hardware version to inject into the OVF (defaults to vmx-10)                | optional          |
+| v_app_properties | The VMWare vapp properties to inject into the OVF ProductSection (defaults to [])      | optional          |
