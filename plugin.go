@@ -115,7 +115,20 @@ func (o *OVF) normalizeOVF(content []byte) {
 	content = virtualboxNATRe.ReplaceAllFunc(content, func(match []byte) []byte {
 		fmt.Println(string(match))
 		if bytes.Contains(match, []byte("<rasd:Connection>NAT</rasd:Connection>")) {
-			return []byte("")
+			return []byte(`
+				<Item>
+					<rasd:AddressOnParent>7</rasd:AddressOnParent>
+					<rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>
+					<rasd:Connection>VM Network</rasd:Connection>
+					<rasd:Description>VmxNet3 ethernet adapter on &quot;VM Network&quot;</rasd:Description>
+					<rasd:ElementName>Ethernet 1</rasd:ElementName>
+					<rasd:InstanceID>11</rasd:InstanceID>
+					<rasd:ResourceSubType>VmxNet3</rasd:ResourceSubType>
+					<rasd:ResourceType>10</rasd:ResourceType>
+					<vmw:Config ovf:required="false" vmw:key="wakeOnLanEnabled" vmw:value="true"/>
+      	</Item>
+
+			`)
 		}
 		return match
 	})
