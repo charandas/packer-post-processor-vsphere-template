@@ -32,6 +32,7 @@ var builtins = map[string]string{
 	"mitchellh.vmware-esx": "vmware",
 }
 
+var networkSectionRe = regexp.MustCompile(`<NetworkSection>`)
 var virtualboxRe = regexp.MustCompile(`<vssd:VirtualSystemType>virtualbox-(\d)+(\.(\d)+)?<\/vssd:VirtualSystemType>`)
 var virtualboxOSRe = regexp.MustCompile(`<OperatingSystemSection ovf:id="(\d)+">`)
 var virtualboxNATRe = regexp.MustCompile(`(?s)<Item>(.*?)<\/Item>`)
@@ -76,6 +77,26 @@ type OVF struct {
 	ctx interpolate.Context
 }
 
+func networkMap(finder *find.Finder, e *ovf.Envelope) (p []types.OvfNetworkMapping){
+	networks := map[string]string{}
+
+	if e.Network != nil {
+		for _, net := range e.Network.Networks {
+			networks[net.Name] = net.Name
+		}
+	}
+
+	for src, dst := range networks {
+		if net, err := finder.Network(context.TODO(), dst); err == nil {
+			p = append(p, types.OvfNetworkMapping{
+				Name:    src,
+				Network: net.Reference(),
+			})
+		}
+	}
+	return
+}
+
 func (o *OVF) normalizeOVF(content []byte) {
 	newHardwareSectionOpenBase := []byte(`
 	<VirtualHardwareSection ovf:transport="com.vmware.guestInfo">
@@ -114,6 +135,13 @@ func (o *OVF) normalizeOVF(content []byte) {
 	content = bytes.Replace(content, []byte("</VirtualHardwareSection>"), newHardwareSectionBase, -1)
 	content = bytes.Replace(content, []byte("</OperatingSystemSection>"), newProductSectionBase, -1)
 
+	content = networkSectionRe.ReplaceAll(content, []byte(`
+		<NetworkSection>
+			<Info>The list of logical networks</Info>
+			<Network ovf:name="GUESTVMS">
+				<Description>The VM Network network</Description>
+			</Network>
+	`))
 	newNetworkCardItem := fmt.Sprintf(`
 		<Item>
 			<rasd:AddressOnParent>7</rasd:AddressOnParent>
@@ -267,10 +295,11 @@ func (o *OVF) upload() (*types.ManagedObjectReference, error) {
 	log.Printf("Configuring import location for '%s'", name)
 
 	finder := find.NewFinder(o.client, true)
-
+	networkMapping := networkMap(finder, o.envelope)
 	specParams := types.OvfCreateImportSpecParams{
 		DiskProvisioning: "thin",
 		EntityName:       name,
+		NetworkMapping:   networkMapping,
 	}
 
 	log.Printf("Setting finder datacenter to '%s'", o.Datacenter)
