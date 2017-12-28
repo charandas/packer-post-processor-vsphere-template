@@ -63,6 +63,7 @@ type OVF struct {
 	OsVersion       string `mapstructure:"os_version"`
 	OsID            string `mapstructure:"os_id"`
 	HardwareVersion string `mapstructure:"hardware_version"`
+	NetworkName     string `mapstructure:"network_name"`
 	VAppProperties  []VAppProperty `mapstructure:"v_app_properties"`
 
 	ui       packer.Ui
@@ -112,22 +113,23 @@ func (o *OVF) normalizeOVF(content []byte) {
 	content = bytes.Replace(content, []byte("<VirtualHardwareSection>"), newHardwareSectionOpenBase, -1)
 	content = bytes.Replace(content, []byte("</VirtualHardwareSection>"), newHardwareSectionBase, -1)
 	content = bytes.Replace(content, []byte("</OperatingSystemSection>"), newProductSectionBase, -1)
+
+	newNetworkCardItem := fmt.Sprintf(`
+		<Item>
+			<rasd:AddressOnParent>7</rasd:AddressOnParent>
+			<rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>
+			<rasd:Description>VmxNet3 ethernet adapter</rasd:Description>
+			<rasd:ElementName>Ethernet 1</rasd:ElementName>
+			<rasd:InstanceID>11</rasd:InstanceID>
+			<rasd:ResourceSubType>VmxNet3</rasd:ResourceSubType>
+			<rasd:ResourceType>10</rasd:ResourceType>
+			<vmw:Config ovf:required="false" vmw:key="wakeOnLanEnabled" vmw:value="true"/>
+			<rasd:Connection>%s</rasd:Connection>
+	`, o.NetworkName)
 	content = virtualboxNATRe.ReplaceAllFunc(content, func(match []byte) []byte {
 		fmt.Println(string(match))
 		if bytes.Contains(match, []byte("<rasd:Connection>NAT</rasd:Connection>")) {
-			return []byte(`
-				<Item>
-					<rasd:AddressOnParent>7</rasd:AddressOnParent>
-					<rasd:AutomaticAllocation>true</rasd:AutomaticAllocation>
-					<rasd:Description>VmxNet3 ethernet adapter on &quot;VM Network&quot;</rasd:Description>
-					<rasd:ElementName>Ethernet 1</rasd:ElementName>
-					<rasd:InstanceID>11</rasd:InstanceID>
-					<rasd:ResourceSubType>VmxNet3</rasd:ResourceSubType>
-					<rasd:ResourceType>10</rasd:ResourceType>
-					<vmw:Config ovf:required="false" vmw:key="wakeOnLanEnabled" vmw:value="true"/>
-      	</Item>
-
-			`)
+			return []byte(newNetworkCardItem)
 		}
 		return match
 	})
