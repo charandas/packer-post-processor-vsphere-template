@@ -32,10 +32,11 @@ var builtins = map[string]string{
 	"mitchellh.vmware-esx": "vmware",
 }
 
-var networkSectionRe = regexp.MustCompile(`<NetworkSection>`)
+var parentOfItemRe = regexp.MustCompile(`(?s)<rasd:Parent>(\d+)<\/rasd:Parent>`)
+var networkSectionRe = regexp.MustCompile(`(?s)<NetworkSection>.*<\/NetworkSection>`)
 var virtualboxRe = regexp.MustCompile(`<vssd:VirtualSystemType>virtualbox-(\d)+(\.(\d)+)?<\/vssd:VirtualSystemType>`)
 var virtualboxOSRe = regexp.MustCompile(`<OperatingSystemSection ovf:id="(\d)+">`)
-var virtualboxNATRe = regexp.MustCompile(`(?s)<Item>(.*?)<\/Item>`)
+var virtualboxItemRe = regexp.MustCompile(`(?s)<Item>(.*?)<\/Item>`)
 var virtualboxVboxRe = regexp.MustCompile(`(?s)<vbox:Machine.*<\/vbox:Machine>`)
 
 type VAppPropertyMetadata struct {
@@ -77,11 +78,23 @@ type OVF struct {
 	ctx interpolate.Context
 }
 
-func networkMap(finder *find.Finder, e *ovf.Envelope) (p []types.OvfNetworkMapping){
+func diskParentIndex(content []byte) (p[] byte) {
+	matches := virtualboxItemRe.FindAll(content, -1)
+	allSubmatches := [][]byte{}
+	for _, match := range matches {
+		if bytes.Contains(match, []byte("<rasd:ResourceType>17</rasd:ResourceType>")) {
+			allSubmatches = parentOfItemRe.FindSubmatch(match)
+			break
+		}
+	}
+	return allSubmatches[1]
+}
+
+func (o *OVF) networkMap(finder *find.Finder) (p []types.OvfNetworkMapping){
 	networks := map[string]string{}
 
-	if e.Network != nil {
-		for _, net := range e.Network.Networks {
+	if o.envelope.Network != nil {
+		for _, net := range o.envelope.Network.Networks {
 			networks[net.Name] = net.Name
 		}
 	}
@@ -96,6 +109,7 @@ func networkMap(finder *find.Finder, e *ovf.Envelope) (p []types.OvfNetworkMappi
 	}
 	return
 }
+
 
 func (o *OVF) normalizeOVF(content []byte) {
 	newHardwareSectionOpenBase := []byte(`
@@ -135,13 +149,15 @@ func (o *OVF) normalizeOVF(content []byte) {
 	content = bytes.Replace(content, []byte("</VirtualHardwareSection>"), newHardwareSectionBase, -1)
 	content = bytes.Replace(content, []byte("</OperatingSystemSection>"), newProductSectionBase, -1)
 
-	content = networkSectionRe.ReplaceAll(content, []byte(`
+	// * Post-processor failed: Line 17: Unsupported element 'Info'
+	content = networkSectionRe.ReplaceAll(content, []byte(fmt.Sprintf(`
 		<NetworkSection>
 			<Info>The list of logical networks</Info>
-			<Network ovf:name="GUESTVMS">
+			<Network ovf:name="%s">
 				<Description>The VM Network network</Description>
 			</Network>
-	`))
+		</NetworkSection>
+	`, o.NetworkName)))
 	newNetworkCardItem := fmt.Sprintf(`
 		<Item>
 			<rasd:AddressOnParent>7</rasd:AddressOnParent>
@@ -155,13 +171,29 @@ func (o *OVF) normalizeOVF(content []byte) {
 			<vmw:Config ovf:required="false" vmw:key="wakeOnLanEnabled" vmw:value="true"/>
 		</Item>
 	`, o.NetworkName)
-	content = virtualboxNATRe.ReplaceAllFunc(content, func(match []byte) []byte {
+
+	content = virtualboxItemRe.ReplaceAllFunc(content, func(match []byte) []byte {
 		fmt.Println(string(match))
+		diskParentInstance :=  fmt.Sprintf("<rasd:InstanceID>%s</rasd:InstanceID>", diskParentIndex(content))
 		if bytes.Contains(match, []byte("<rasd:Connection>NAT</rasd:Connection>")) {
 			return []byte(newNetworkCardItem)
+		} else if (bytes.Contains(match, []byte("<rasd:ResourceSubType>PIIX4</rasd:ResourceSubType>")) && bytes.
+				Contains(match, []byte(diskParentInstance))) {
+			// Replace the IDE controller the disk refers to with SCSI.
+			return []byte(fmt.Sprintf(`
+				<Item>
+					<rasd:Address>0</rasd:Address>
+					<rasd:Description>SCSI Controller</rasd:Description>
+					<rasd:ElementName>SCSI Controller 0</rasd:ElementName>
+					%s
+					<rasd:ResourceSubType>VirtualSCSI</rasd:ResourceSubType>
+					<rasd:ResourceType>6</rasd:ResourceType>
+			</Item>
+			`, diskParentInstance))
 		}
 		return match
 	})
+
 	content = virtualboxVboxRe.ReplaceAll(content, []byte(""))
 	// make some of this stuff configurable
 	var newOSSection string
@@ -295,7 +327,8 @@ func (o *OVF) upload() (*types.ManagedObjectReference, error) {
 	log.Printf("Configuring import location for '%s'", name)
 
 	finder := find.NewFinder(o.client, true)
-	networkMapping := networkMap(finder, o.envelope)
+	networkMapping := o.networkMap(finder)
+	log.Printf("%v", networkMapping)
 	specParams := types.OvfCreateImportSpecParams{
 		DiskProvisioning: "thin",
 		EntityName:       name,
