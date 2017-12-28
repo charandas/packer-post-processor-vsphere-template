@@ -125,6 +125,7 @@ func (o *OVF) normalizeOVF(content []byte) {
 			<rasd:ResourceType>10</rasd:ResourceType>
 			<vmw:Config ovf:required="false" vmw:key="wakeOnLanEnabled" vmw:value="true"/>
 			<rasd:Connection>%s</rasd:Connection>
+		</Item>
 	`, o.NetworkName)
 	content = virtualboxNATRe.ReplaceAllFunc(content, func(match []byte) []byte {
 		fmt.Println(string(match))
