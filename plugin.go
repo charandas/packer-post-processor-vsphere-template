@@ -483,6 +483,10 @@ func (p *PostProcessor) Configure(raws ...interface{}) error {
 		p.config.Folder = "/"
 	}
 
+	if p.config.NetworkName == "" {
+		p.config.NetworkName = "NAT"
+	}
+
 	// Accumulate any errors
 	errs := new(packer.MultiError)
 
