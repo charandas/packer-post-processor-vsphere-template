@@ -67,3 +67,4 @@ The following attributes are available:
 | vm_name          | The name of the OVF template to upload (defaults to the builder name)                  | optional          |
 | hardware_version | The VMWare hardware version to inject into the OVF (defaults to vmx-10)                | optional          |
 | v_app_properties | The VMWare vapp properties to inject into the OVF ProductSection (defaults to [])      | optional          |
+| network_name     | The VMWare PortGroup/Network for OVF Network/NIC Section (defaults to "NAT")           | optional  
