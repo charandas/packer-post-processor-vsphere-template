@@ -2,3 +2,11 @@ packer-post-processor-*
 vendor
 .DS_Store
 build
+
+bazel
+bazel-bazel-test
+bazel-bin
+bazel-genfiles
+bazel-out
+bazel-testlogs
+bazel-packer-post-processor-vsphere-template
